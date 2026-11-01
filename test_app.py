@@ -135,3 +135,14 @@ def test_provider_schema_citations_and_secret_query_removed():
     with patch.object(module,'API_KEY','not-a-real-key'), patch.object(module,'urlopen',side_effect=request_check):
         answer = module.ai_analysis('Outro','Veja https://example.org/p?secret=123')
         assert answer['mode'] == 'ia' and len(answer['sources']) == 1
+
+
+def test_checklist_gives_specific_actions_without_claiming_verification():
+    urgent = module.fallback('Pedido de Pix', 'Um número novo pediu Pix urgente e solicitou meu código de autenticação.')
+    assert urgent['risk'] == 'alto'
+    assert any('Não envie senha' in a for a in urgent['actions'])
+    paid = module.fallback('Pedido de Pix', 'Já paguei e agora acho que perdi dinheiro.')
+    assert 'banco agora' in paid['summary']
+    bill = module.fallback('Cobrança inesperada', 'Recebi um boleto de uma empresa que não reconheço.')
+    assert any('credor' in a for a in bill['actions'])
+    assert all('sem risco' not in r['summary'] for r in (urgent, paid, bill))

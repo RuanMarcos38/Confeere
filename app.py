@@ -12,7 +12,7 @@ import ipaddress
 import logging
 import base64
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request as URLRequest, urlopen
 from urllib.error import HTTPError, URLError
@@ -284,12 +284,29 @@ def context_info(description):
 
 def fallback(category, description, reason=""):
     urls, signals = context_info(description)
+    text = description.lower()
+    risk = "insuficiente"
+    summary = "Ainda não é possível confirmar esta situação. Use os passos abaixo antes de decidir."
+    actions = ["Abra o aplicativo ou digite o endereço oficial da empresa por conta própria; procure a mesma oferta e confira o vendedor.", "Confirme o contato por um canal que você já conhece. Não use apenas o telefone ou link recebido na mensagem.", "Confira preço final, frete, política de devolução e destinatário do pagamento. Se houver divergência ou pressão, interrompa a operação."]
     questions = ["Qual é o preço anunciado e onde você recebeu a oferta?", "Quem aparece como vendedor e como recebedor do pagamento?"]
     if not urls:
         questions.insert(0, "Qual é o endereço completo do site ou o texto da mensagem, sem dados pessoais?")
     if category == "Pedido de Pix":
         questions = ["Você confirmou o pedido por uma ligação para um número que já conhecia?", "O nome exibido pelo banco corresponde à pessoa ou empresa esperada?"]
-    return {"risk": "insuficiente", "summary": "Ainda não é possível confirmar esta situação. Use os passos abaixo antes de decidir.", "signals": signals or ["O relato sozinho não confirma a identidade do vendedor ou de quem fez o pedido."], "actions": ["Abra o aplicativo ou digite o endereço oficial da empresa por conta própria; procure a mesma oferta e confira o vendedor.", "Confirme o contato por um canal que você já conhece. Não use apenas o telefone ou link recebido na mensagem.", "Confira preço final, frete, política de devolução e destinatário do pagamento. Se houver divergência ou pressão, interrompa a operação."], "questions": questions, "limitations": ["Checklist preventivo. Não houve análise por IA nem verificação externa deste caso.", reason] if reason else ["Checklist preventivo. Não houve análise por IA nem verificação externa deste caso."], "sources": [], "mode": "checklist", "checked_at": int(time.time())}
+        risk = "atencao"
+        summary = "Pause a transferência até confirmar quem está pedindo e quem receberá o dinheiro."
+        actions = ["Ligue para a pessoa usando um número que você já tinha salvo. Um número novo ou a foto de perfil não confirmam identidade.", "Antes de confirmar, compare o recebedor mostrado pelo banco com a pessoa ou empresa esperada. Se houver diferença, interrompa e esclareça por outro canal.", "Não transfira por pressão de tempo e não compartilhe códigos para supostamente liberar ou cancelar o Pix."]
+    elif category == "Cobrança inesperada":
+        summary = "Confira a origem da cobrança antes de pagar ou negociar."
+        actions = ["Abra o aplicativo ou site oficial do credor por conta própria e veja se a cobrança aparece no seu contrato ou histórico.", "Peça a identificação da compra ou serviço, a data e o valor por um canal oficial. Não envie documentos pelo contato que fez a cobrança.", "Confira o beneficiário antes de pagar boleto ou Pix. Se você não reconhecer a dívida, registre a contestação no atendimento oficial e guarde o protocolo."]
+    if re.search(r"(ped\w*|solicit\w*|env\w*|pass\w*|compartilh\w*).{0,60}(senha|código|codigo|token|acesso remoto)", text):
+        risk = "alto"
+        summary = "Há um pedido de senha, código ou acesso no relato. Interrompa esse pedido e confirme pelo canal oficial."
+        actions.insert(0, "Não envie senha ou código de autenticação e não instale aplicativo de acesso remoto. Esses dados podem permitir acesso à sua conta.")
+    if re.search(r"(já|ja) (paguei|enviei|transferi)|fiz (o |um )?pix", text):
+        summary = "Como o relato diz que o pagamento já ocorreu, procure seu banco agora pelos canais oficiais."
+        actions = ["Relate a suspeita ao banco no aplicativo ou telefone oficial, informe a transação e pergunte quais medidas se aplicam. Não há garantia de devolução.", "Guarde comprovante, conversa, anúncio e endereço do site antes de apagar qualquer informação.", "Não pague taxas para recuperar dinheiro. Se também compartilhou acesso, proteja a conta pelo aplicativo ou site oficial."]
+    return {"risk": risk, "summary": summary, "signals": signals or ["O relato sozinho não confirma a identidade do vendedor ou de quem fez o pedido."], "actions": actions, "questions": questions, "limitations": ["Checklist preventivo baseado em regras e no que você escreveu. Não houve análise por IA nem verificação externa deste caso.", reason] if reason else ["Checklist preventivo baseado em regras e no que você escreveu. Não houve análise por IA nem verificação externa deste caso."], "sources": [], "mode": "checklist", "checked_at": int(time.time())}
 
 
 SCHEMA = {"type": "object", "properties": {"risk": {"type": "string", "enum": ["alto", "atencao", "insuficiente"]}, "summary": {"type": "string"}, **{key: {"type": "array", "items": {"type": "string"}} for key in ("signals", "actions", "questions", "limitations")}}, "required": ["risk", "summary", "signals", "actions", "questions", "limitations"], "additionalProperties": False}
@@ -445,7 +462,7 @@ def result_html(result):
             if url:
                 out += '<li><a class="break" target="_blank" rel="noopener noreferrer" href="' + esc(url) + '">' + esc(source.get("title") or url) + '</a></li>'
         out += '</ul>'
-    checked = datetime.fromtimestamp(result.get("checked_at", 0), timezone.utc).strftime("%d/%m/%Y às %H:%M UTC")
+    checked = datetime.fromtimestamp(result.get("checked_at", 0), timezone(timedelta(hours=-3))).strftime("%d/%m/%Y às %H:%M (Brasília)")
     return out + '<p class="small muted">Gerada em ' + checked + '. As condições da oferta podem mudar.</p></section>'
 
 
